@@ -92,6 +92,24 @@ def get_GL_pts_wts(n_quad):
         xi = 1.0/np.sqrt(3)
         pts = np.array([-xi, xi])
         wts = np.array([1.0, 1.0])
+    elif n_quad == 3:
+        xi = np.sqrt(3/5)
+        pts = np.array([-xi, 0, xi])
+        wts = np.array([5/9, 8/9, 5/9])
+    elif n_quad == 4:
+        xi_1 = np.sqrt((3/7) - (2/7)*np.sqrt(6/5))
+        xi_2 = np.sqrt((3/7) + (2/7)*np.sqrt(6/5))
+        w1 = (18 + np.sqrt(30))/36
+        w2 = (18 - np.sqrt(30))/36
+        pts = np.array([-xi_2, -xi_1, xi_1, xi_2])
+        wts = np.array([w2, w1, w1, w2])
+    elif n_quad == 5:
+        xi_1 = np.sqrt(5 - 2*np.sqrt(10/7))/3
+        xi_2 = np.sqrt(5 + 2*np.sqrt(10/7))/3
+        w1 = (322 + 13*np.sqrt(70))/900
+        w2 = (322 - 13*np.sqrt(70))/900
+        pts = np.array([-xi_2, -xi_1, 0, xi_1, xi_2])
+        wts = np.array([w2, w1, 128/225, w1, w2])
     else:
         raise Exception("Invalid quadrature order!")
 
