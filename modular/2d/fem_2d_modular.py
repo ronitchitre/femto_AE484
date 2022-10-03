@@ -4,14 +4,12 @@ from mpl_toolkits import mplot3d
 from scipy.sparse.linalg import spsolve
 from scipy.sparse import coo_matrix
 
-pi = np.pi
-
 
 def create_mesh_unit_square(n_side=4):
     h = 1.0/n_side
     nodes = []
     node_count = 0
-    dbc = []
+    bdy = []
     tol = 1e-6
 
     for j in range(n_side + 1):
@@ -24,11 +22,12 @@ def create_mesh_unit_square(n_side=4):
                 or abs(1 - x) <= tol
                 or abs(y) <= tol
                 or abs(1 - y) <= tol ):
-                dbc.append([node_count, 0.0])
+                bdy.append(node_count)
 
             node_count += 1
 
     nodes = np.array(nodes)
+    bdy = np.array(bdy, dtype=int)
     elements = []
 
     for j in range(n_side):
@@ -46,7 +45,7 @@ def create_mesh_unit_square(n_side=4):
             ])
 
     elements = np.array(elements, dtype=int)
-    return nodes, elements, dbc
+    return nodes, elements, bdy
 
 
 def create_dof(nodes, dbc):
@@ -109,39 +108,105 @@ def _reassign_dof(dof, node_idx, node_idx_inv):
     dof[:] = dof_renum[:]
 
 
-def renumber_mesh_dof(nodes, elements, dof):
+def _reassign_nbc(nbc, node_idx, node_idx_inv):
+    nbc_count = 0
+    for i, val in nbc:
+        nbc[nbc_count][0] = node_idx[i]
+        nbc_count += 1
+
+
+def renumber_mesh_dof(nodes, elements, nbc, dof):
     node_idx = _renumber_node_indices(dof)
     node_idx_inv = _compute_inverse_node_indices(node_idx)
     _reassign_nodes(nodes, node_idx, node_idx_inv)
     _renumber_elements(elements, node_idx, node_idx_inv)
+    if nbc is not None:
+        _reassign_nbc(nbc, node_idx, node_idx_inv)
     _reassign_dof(dof, node_idx, node_idx_inv)
 
 
-def get_GL_pts_wts(n_quad):
+def apply_bc(nodes, elements, bdy, in_bc):
+    bc = []
+    for i in bdy:
+        on_bdy, val = in_bc(*nodes[i])
+        if on_bdy:
+            bc.append([i, val])
+    return bc
+
+
+def get_GL_pts_wts_1d(n_quad):
     if n_quad == 1:
-        pts = np.array([[1/3, 1/3]])
-        wts = np.array([1.0])
+        pts = np.array([0.0])
+        wts = np.array([2.0])
     elif n_quad == 2:
-        pts = np.array([[1/6, 1/6],
-                        [2/3, 1/6],
-                        [1/6, 2/3]])
-        wts = np.array([1/3, 1/3, 1/3])
+        xi = 1.0/np.sqrt(3)
+        pts = np.array([-xi, xi])
+        wts = np.array([1.0, 1.0])
     elif n_quad == 3:
-        pts = np.array([[1/3, 1/3],
-                        [1/5, 1/5],
-                        [3/5, 1/5],
-                        [1/5, 3/5]])
-        wts = np.array([-27/48, 25/48, 25/48, 25/48])
+        xi = np.sqrt(3/5)
+        pts = np.array([-xi, 0, xi])
+        wts = np.array([5/9, 8/9, 5/9])
+    elif n_quad == 4:
+        xi_1 = np.sqrt((3/7) - (2/7)*np.sqrt(6/5))
+        xi_2 = np.sqrt((3/7) + (2/7)*np.sqrt(6/5))
+        w1 = (18 + np.sqrt(30))/36
+        w2 = (18 - np.sqrt(30))/36
+        pts = np.array([-xi_2, -xi_1, xi_1, xi_2])
+        wts = np.array([w2, w1, w1, w2])
+    elif n_quad == 5:
+        xi_1 = np.sqrt(5 - 2*np.sqrt(10/7))/3
+        xi_2 = np.sqrt(5 + 2*np.sqrt(10/7))/3
+        w1 = (322 + 13*np.sqrt(70))/900
+        w2 = (322 - 13*np.sqrt(70))/900
+        pts = np.array([-xi_2, -xi_1, 0, xi_1, xi_2])
+        wts = np.array([w2, w1, 128/225, w1, w2])
     else:
         raise Exception("Invalid quadrature order!")
 
     return pts, wts
 
 
-def integrate_GL_quad(g, n_quad=2):
-    pts, wts = get_GL_pts_wts(n_quad)
+def get_GL_pts_wts(n_quad, quad_type='area'):
+    if quad_type == 'area':
+        if n_quad == 1:
+            pts = np.array([[1/3, 1/3]])
+            wts = np.array([1.0])
+        elif n_quad == 2:
+            pts = np.array([[1/6, 1/6],
+                            [2/3, 1/6],
+                            [1/6, 2/3]])
+            wts = np.array([1/3, 1/3, 1/3])
+        elif n_quad == 3:
+            pts = np.array([[1/3, 1/3],
+                            [1/5, 1/5],
+                            [3/5, 1/5],
+                            [1/5, 3/5]])
+            wts = np.array([-27/48, 25/48, 25/48, 25/48])
+        else:
+            raise Exception("Invalid quadrature order!")
+    elif quad_type == 'duffy':
+        pts_x, wts_x = get_GL_pts_wts_1d(n_quad)
+        pts_x = (1 + pts_x)/2
+        wts_x = 2*wts_x
+        pts = np.zeros((n_quad*n_quad, 2))
+        wts = np.zeros(n_quad*n_quad)
+        for j in range(n_quad):
+            for i in range(n_quad):
+                pts[j*n_quad + i, 0] = pts_x[i]
+                pts[j*n_quad + i, 1] = pts_x[j]*(1 - pts_x[i])
+                wts[j*n_quad + i] = wts_x[i]*wts_x[j]*(1 - pts_x[i])
+    else:
+        raise Exception(
+            "Invalid quadrature type: use either 'area' or 'duffy'"
+        )
+
+    return pts, wts
+
+
+def integrate_GL_quad(g, n_quad, quad_type):
+    pts, wts = get_GL_pts_wts(n_quad, quad_type)
     intgl = 0.0
-    for i in range(n_quad):
+    for i in range(len(wts)):
         intgl += wts[i] * g(*pts[i])
     return intgl
 
@@ -183,15 +248,7 @@ def d_phi(idx_phi, idx_x, xi, eta):
         raise Exception("Invalid shape function index")
 
 
-def f(x, y):
-    return 8*pi*pi*np.sin(2*pi*x)*np.sin(2*pi*y)
-
-
-def u_exact(x, y):
-    return np.sin(2*pi*x)*np.sin(2*pi*y)
-
-
-def _reference_stiffness_matrix(n_quad, coords):
+def _reference_stiffness_matrix(n_quad, coords, quad_type='area'):
     x1, x2, x3 = coords[:, 0]
     y1, y2, y3 = coords[:, 1]
     J = np.zeros((2, 2))
@@ -209,13 +266,13 @@ def _reference_stiffness_matrix(n_quad, coords):
                 df1 = np.array([d_phi(i, 0, xi, eta), d_phi(i, 1, xi, eta)])
                 df2 = np.array([d_phi(j, 0, xi, eta), d_phi(j, 1, xi, eta)])
                 return np.dot((J @ df1), (J @ df2))
-            ke[i, j] = integrate_GL_quad(g, n_quad=n_quad)
+            ke[i, j] = integrate_GL_quad(g, n_quad=n_quad, quad_type=quad_type)
 
     ke *= vol
     return ke
 
 
-def compute_stiffness_matrix(nodes, elements, n_quad):
+def compute_stiffness_matrix(nodes, elements, n_quad, quad_type):
     M = np.shape(nodes)[0]
 
     II = []
@@ -224,7 +281,7 @@ def compute_stiffness_matrix(nodes, elements, n_quad):
 
     for elt in elements:
         coords = nodes[elt]
-        ke = _reference_stiffness_matrix(n_quad, coords)
+        ke = _reference_stiffness_matrix(n_quad, coords, quad_type)
 
         for i in range(3):
             for j in range(3):
@@ -236,7 +293,7 @@ def compute_stiffness_matrix(nodes, elements, n_quad):
     return K
 
 
-def _compute_reference_load_vector(n_quad, coords):
+def _compute_reference_load_vector(n_quad, coords, f, quad_type):
     x1, x2, x3 = coords[:, 0]
     y1, y2, y3 = coords[:, 1]
     vol = np.abs((x2 - x1)*(y3 - y1) - (x3 - x1)*(y2 - y1))
@@ -254,37 +311,45 @@ def _compute_reference_load_vector(n_quad, coords):
 
             return f(x, y)*phi(j, xi, eta)
 
-        fe[j] = integrate_GL_quad(g, n_quad=n_quad)
+        fe[j] = integrate_GL_quad(g, n_quad=n_quad, quad_type=quad_type)
 
     fe *= vol
     return fe
 
 
-def compute_load_vector(nodes, elements, n_quad):
+def compute_load_vector(nodes, elements, n_quad, f, quad_type):
     M = np.shape(nodes)[0]
     F = np.zeros(M)
 
-    for elt in elements:
-        coords = nodes[elt]
-        fe = _compute_reference_load_vector(n_quad, coords)
+    if f is None:
+        return F
+    else:
+        for elt in elements:
+            coords = nodes[elt]
+            fe = _compute_reference_load_vector(n_quad, coords, f, quad_type)
 
-        for i in range(3):
-            F[elt[i]] += fe[i]
+            for i in range(3):
+                F[elt[i]] += fe[i]
 
-    return F
+        return F
 
 
 def _get_num_unknowns(dof):
     return np.size(np.where(np.isnan(dof)))
 
 
-def solve_bvp(nodes, elements, dbc, n_quad):
+def solve_bvp(nodes, elements, dbc,
+              nbc=None, n_quad=2, f=None, quad_type='area'):
     dof = create_dof(nodes, dbc)
-    renumber_mesh_dof(nodes, elements, dof)
+    renumber_mesh_dof(nodes, elements, nbc, dof)
 
-    K = compute_stiffness_matrix(nodes, elements, n_quad)
+    K = compute_stiffness_matrix(nodes, elements, n_quad, quad_type)
     K = K.tocsr()
-    F = compute_load_vector(nodes, elements, n_quad)
+    F = compute_load_vector(nodes, elements, n_quad, f, quad_type)
+
+    if nbc is not None:
+        for i, val in nbc:
+            F[i] += val
 
     N = _get_num_unknowns(dof)
     U_dbc = dof[N:]
@@ -294,11 +359,12 @@ def solve_bvp(nodes, elements, dbc, n_quad):
     return dof
 
 
-def plot_fem_soln(nodes, dof, n_plot=11):
-    xs = np.linspace(0, 1, n_plot)
-    ys = np.linspace(0, 1, n_plot)
-    xs, ys = np.meshgrid(xs, ys)
-    us_exact = u_exact(xs, ys)
+def plot_fem_soln(nodes, dof, u_exact=None, n_plot=11):
+    if u_exact is not None:
+        xs = np.linspace(0, 1, n_plot)
+        ys = np.linspace(0, 1, n_plot)
+        xs, ys = np.meshgrid(xs, ys)
+        us_exact = u_exact(xs, ys)
 
     plt.figure(figsize=(6, 6))
     ax = plt.axes(projection='3d')
@@ -308,10 +374,11 @@ def plot_fem_soln(nodes, dof, n_plot=11):
     surf._facecolors2d = surf._facecolors  # You may not need this line!
     surf._edgecolors2d = surf._edgecolors  # You may not need this line!
 
-    surf = ax.plot_wireframe(xs, ys, us_exact,
-                             linewidth=1, color='black', label='Exact')
-    surf._facecolors2d = surf._facecolors  # You may not need this line!
-    surf._edgecolors2d = surf._edgecolors  # You may not need this line!
+    if u_exact is not None:
+        surf = ax.plot_wireframe(xs, ys, us_exact,
+                                 linewidth=1, color='black', label='Exact')
+        surf._facecolors2d = surf._facecolors  # You may not need this line!
+        surf._edgecolors2d = surf._edgecolors  # You may not need this line!
 
     ax.set_xlabel('x')
     ax.set_ylabel('y')
@@ -356,7 +423,7 @@ def fe_interpolate(nodes, elements, dof, x, y):
     return uh
 
 
-def compute_L2_error(nodes, elements, dof, n_quad=100):
+def compute_L2_error(nodes, elements, dof, u_exact, n_quad=100):
     xs = np.linspace(0, 1, (n_quad + 1))
     ys = np.linspace(0, 1, (n_quad + 1))
     xs, ys = np.meshgrid(xs, ys)
@@ -369,12 +436,12 @@ def compute_L2_error(nodes, elements, dof, n_quad=100):
     return np.sqrt(err_L2)
 
 
-def compute_L2_error_centers(nodes, elements, dof):
+def compute_L2_error_centers(nodes, elements, dof, u_exact):
     err_L2 = 0.0
     for elt in elements:
         coords = nodes[elt]
         xc = np.sum(coords[:, 0])/3
-        yc = np.sum(coords[:,1])/3
+        yc = np.sum(coords[:, 1])/3
         ue = u_exact(xc, yc)
         xi = 1/3
         eta = 1/3
