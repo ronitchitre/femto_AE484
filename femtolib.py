@@ -50,7 +50,7 @@ class FiniteElement:
     def get_coords(self, xi, nodes):
         raise NotImplementedError()
 
-    def Jacobian(self, nodes):
+    def Jacobian(self, xi, nodes):
         raise NotImplementedError()
 
     def get_ref_coords(self, x, nodes):
@@ -71,16 +71,16 @@ class FunctionSpace:
     def eval(self, x, D=None):
         elt_id = self.mesh.find_element(x)
         nodes = self.mesh.nodes[self.mesh.elements[elt_id]]
-        xi = self.reference.get_ref_coords(nodes)
+        xi = self.reference.get_ref_coords(x, nodes)
         uh = 0.0
         if D is None:
             for i in range(self.reference.n_dof):
                 uh += ( self.reference.phi(i, *xi)
-                       *self.dof[self.reference.elements[elt_id][i]] )
+                       *self.dof[self.mesh.elements[elt_id][i]] )
         else:
             for i in range(self.reference.n_dof):
                 uh += ( self.reference.d_phi(i, D, *xi)
-                       *self.dof[self.reference.elements[elt_id][i]] )
+                       *self.dof[self.mesh.elements[elt_id][i]] )
         return uh
 
 
@@ -192,19 +192,19 @@ class Model:
         ke = np.zeros((self.n_tot_elt, self.n_tot_elt))
 
         for i_field, field_i in enumerate(self.fields):
-            J_i = field_i.reference.Jacobian(nodes)
-            vol_i = np.abs(np.linalg.det(J_i))
-            J_i = np.linalg.inv(J_i).transpose()
-
             for i in range(self.n_dof_elt[i_field]):
                 ii = self.cum_dof_elt[i_field] + i
 
                 for j_field, field_j in enumerate(self.fields):
-                    J_j = field_j.reference.Jacobian(nodes)
-                    J_j = np.linalg.inv(J_j).transpose()
-
                     for j in range(self.n_dof_elt[j_field]):
                         def g(xi):
+                            J_i = field_i.reference.Jacobian(xi, nodes)
+                            vol_i = np.abs(np.linalg.det(J_i))
+                            J_i = np.linalg.inv(J_i).transpose()
+                            
+                            J_j = field_j.reference.Jacobian(xi, nodes)
+                            J_j = np.linalg.inv(J_j).transpose()
+                            
                             x = field_i.reference.get_coords(xi, nodes)
                             fi = field_i.reference.phi(i, *xi)
                             fj = field_j.reference.phi(j, *xi)
@@ -218,37 +218,32 @@ class Model:
                             )
                             return self.stiffness_kernel(
                                 i_field, j_field, x, fi, fj, dfi, dfj
-                            )
+                            ) * vol_i
 
                         jj = self.cum_dof_elt[j_field] + j
                         ke[ii, jj] = field_i.reference.integrate(g)
-
-            ke *= vol_i
-
+                        
         return ke
 
     def reference_load_vector(self, nodes):
         fe = np.zeros(self.n_tot_elt)
 
         for i_field, field in enumerate(self.fields):
-            J = field.reference.Jacobian(nodes)
-            vol = np.abs(np.linalg.det(J))
-            J = np.linalg.inv(J).transpose()
-
             for i in range(self.n_dof_elt[i_field]):
                 def g(xi):
+                    J = field.reference.Jacobian(xi, nodes)
+                    vol = np.abs(np.linalg.det(J))
+                    J = np.linalg.inv(J).transpose()
                     x = field.reference.get_coords(xi, nodes)
                     fi = field.reference.phi(i, *xi)
                     dfi = J @ np.array(
                         [field.reference.d_phi(i, dim, *xi)
                          for dim in range(field.mesh.dim)]
                     )
-                    return self.load_kernel(i_field, x, fi, dfi)
+                    return self.load_kernel(i_field, x, fi, dfi)*vol
 
                 ii = self.cum_dof_elt[i_field] + i
                 fe[ii] = field.reference.integrate(g)
-
-            fe *= vol
 
         return fe
 

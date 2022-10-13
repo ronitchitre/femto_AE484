@@ -12,6 +12,7 @@ import mesher
 import elements
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.tri as tri
 from mpl_toolkits import mplot3d
 
 pi = np.pi
@@ -82,6 +83,8 @@ class Poisson2D(femto.Model):
     def plot(self, i_field=0, n_plot=10):
         if i_field == 0 or i_field == 1:
             u = self.fields[i_field]
+            triangulation = tri.Triangulation(u.mesh.nodes[:, 0],
+                                              u.mesh.nodes[:, 1])
 
             if self.exact is not None:
                 xs = np.linspace(0, 1, n_plot)
@@ -92,7 +95,7 @@ class Poisson2D(femto.Model):
             plt.figure(figsize=(6, 6))
             ax = plt.axes(projection='3d')
 
-            surf = ax.plot_trisurf(u.mesh.nodes[:, 0], u.mesh.nodes[:, 1],
+            surf = ax.plot_trisurf(triangulation,
                                    u.dof, color='red', label='FEM')
             # The next two lines may not be necessary
             surf._facecolors2d = surf._facecolors
@@ -118,12 +121,14 @@ if __name__ == '__main__':
     quad_order = 2
     n_plot = 41
 
-    mesh = mesher.UnitSquareTri(n_side=n_side)
-    ref_triangle = elements.TriangleP1(quad_order=quad_order)
+    # mesh = mesher.UnitSquareTri(nx=n_side, ny=n_side)
+    mesh = mesher.UnitSquareQuad(nx=n_side, ny=n_side)
+    # ref_elt = elements.TriangleP1(quad_order=quad_order)
+    ref_elt = elements.QuadP1(quad_order=quad_order)
 
     n_dof = len(mesh.nodes)
-    u1h = femto.FunctionSpace(mesh, ref_triangle, n_dof, idx=0)
-    u2h = femto.FunctionSpace(mesh, ref_triangle, n_dof, idx=1)
+    u1h = femto.FunctionSpace(mesh, ref_elt, n_dof, idx=0)
+    u2h = femto.FunctionSpace(mesh, ref_elt, n_dof, idx=1)
 
     fields = [u1h, u2h]
     model = Poisson2D(fields, source=f, exact=u_exact)

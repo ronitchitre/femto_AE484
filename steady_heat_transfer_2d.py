@@ -13,6 +13,7 @@ import elements
 import numpy as np
 import triangle as tr
 import matplotlib.pyplot as plt
+import matplotlib.tri as tri
 from mpl_toolkits import mplot3d
 
 pi = np.pi
@@ -117,12 +118,15 @@ class Poisson(femto.Model):
     def plot(self, i_field=0):
         if i_field == 0:
             u = self.fields[i_field]
+            triangulation = tri.Triangulation(u.mesh.nodes[:, 0],
+                                              u.mesh.nodes[:, 1],
+                                              u.mesh.elements)
 
             fig, ax = plt.subplots(1, 1)
-            ax.tricontour(u.mesh.nodes[:, 0], u.mesh.nodes[:, 1],
-                          u.dof, levels=40, linewidths=0.5, colors='k')
-            surf = ax.tricontourf(u.mesh.nodes[:, 0], u.mesh.nodes[:, 1],
-                                  u.dof, levels=40, cmap="RdBu_r")
+            ax.tricontour(triangulation, u.dof,
+                          levels=40, linewidths=0.5, colors='k')
+            surf = ax.tricontourf(triangulation, u.dof,
+                                  levels=40, cmap="RdBu_r")
 
             ax.set_xlabel('x')
             ax.set_ylabel('y')
