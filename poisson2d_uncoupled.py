@@ -10,33 +10,10 @@ September 2022
 import femtolib as femto
 import mesher
 import elements
+import function_spaces
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.tri as tri
-from mpl_toolkits import mplot3d
 
 pi = np.pi
-
-
-def f(i_field, xs):
-    if i_field == 0:
-        if xs.ndim > 1:
-            x = xs[:, 0]
-            y = xs[:, 1]
-            return 8*pi*pi*np.sin(2*pi*x)*np.sin(2*pi*y)
-        else:
-            x = xs[0]
-            y = xs[1]
-            return 8*pi*pi*np.sin(2*pi*x)*np.sin(2*pi*y)
-    elif i_field == 1:
-        if xs.ndim > 1:
-            x = xs[:, 0]
-            y = xs[:, 1]
-            return 8*pi*pi*np.sin(2*pi*x)*np.cos(2*pi*y)
-        else:
-            x = xs[0]
-            y = xs[1]
-            return 8*pi*pi*np.sin(2*pi*x)*np.cos(2*pi*y)
 
 
 def u_exact(i_field, x, y):
@@ -62,9 +39,31 @@ def in_dbc(i_field, x, y):
 
 
 class Poisson2D(femto.Model):
-    def __init__(self, fields=None, source=None, exact=None):
-        super().__init__(fields, exact)
-        self.source = source
+    def __init__(self, mesh=None, fields=None, exact=None):
+        super().__init__(mesh, fields, exact)
+        
+        self.dirichlet = in_dbc
+        self.neumann = None
+        
+    def source(self, i_field, xs):
+        if i_field == 0:
+            if xs.ndim > 1:
+                x = xs[:, 0]
+                y = xs[:, 1]
+                return 8*pi*pi*np.sin(2*pi*x)*np.sin(2*pi*y)
+            else:
+                x = xs[0]
+                y = xs[1]
+                return 8*pi*pi*np.sin(2*pi*x)*np.sin(2*pi*y)
+        elif i_field == 1:
+            if xs.ndim > 1:
+                x = xs[:, 0]
+                y = xs[:, 1]
+                return 8*pi*pi*np.sin(2*pi*x)*np.cos(2*pi*y)
+            else:
+                x = xs[0]
+                y = xs[1]
+                return 8*pi*pi*np.sin(2*pi*x)*np.cos(2*pi*y)
 
     def stiffness_kernel(self, i, j, x, u, v, grad_u, grad_v):
         if i == 0 and j == 0:
@@ -79,61 +78,29 @@ class Poisson2D(femto.Model):
             return self.source(i, x)*v
         elif i == 1:
             return self.source(i, x)*v
-
-    def plot(self, i_field=0, n_plot=10):
-        if i_field == 0 or i_field == 1:
-            u = self.fields[i_field]
-            triangulation = tri.Triangulation(u.mesh.nodes[:, 0],
-                                              u.mesh.nodes[:, 1])
-
-            if self.exact is not None:
-                xs = np.linspace(0, 1, n_plot)
-                ys = np.linspace(0, 1, n_plot)
-                xs, ys = np.meshgrid(xs, ys)
-                us_exact = self.exact(i_field, xs, ys)
-
-            plt.figure(figsize=(6, 6))
-            ax = plt.axes(projection='3d')
-
-            surf = ax.plot_trisurf(triangulation,
-                                   u.dof, color='red', label='FEM')
-            # The next two lines may not be necessary
-            surf._facecolors2d = surf._facecolors
-            surf._edgecolors2d = surf._edgecolors
-
-            if self.exact is not None:
-                surf = ax.plot_wireframe(xs, ys, us_exact,
-                                         linewidth=1, color='black',
-                                         label='Exact')
-                # The next two lines may not be necessary
-                surf._facecolors2d = surf._facecolors
-                surf._edgecolors2d = surf._edgecolors
-
-            ax.set_xlabel('x')
-            ax.set_ylabel('y')
-            ax.set_zlabel('u')
-            ax.legend()
-            plt.show()
-
+            
 
 if __name__ == '__main__':
     n_side = 20
+    quad_type = 'triangle'
+    # quad_type = 'quadrilateral'
     quad_order = 2
     n_plot = 41
 
-    # mesh = mesher.UnitSquareTri(nx=n_side, ny=n_side)
-    mesh = mesher.UnitSquareQuad(nx=n_side, ny=n_side)
-    # ref_elt = elements.TriangleP1(quad_order=quad_order)
-    ref_elt = elements.QuadP1(quad_order=quad_order)
-
-    n_dof = len(mesh.nodes)
-    u1h = femto.FunctionSpace(mesh, ref_elt, n_dof, idx=0)
-    u2h = femto.FunctionSpace(mesh, ref_elt, n_dof, idx=1)
-
+    if quad_type == 'triangle':
+        ref_elt = elements.TriangleP1(quad_order=quad_order)
+        mesh = mesher.UnitSquareTri(nx=n_side, ny=n_side, reference=ref_elt)
+        u1h = function_spaces.P1(mesh, ref_elt, idx=0)
+        u2h = function_spaces.P1(mesh, ref_elt, idx=1)
+    elif quad_type == 'quadrilateral':
+        ref_elt = elements.QuadP1(quad_order=quad_order)
+        mesh = mesher.UnitSquareQuad(nx=n_side, ny=n_side, reference=ref_elt)
+        u1h = function_spaces.Q1(mesh, ref_elt, idx=0)
+        u2h = function_spaces.Q1(mesh, ref_elt, idx=1)
     fields = [u1h, u2h]
-    model = Poisson2D(fields, source=f, exact=u_exact)
-    model.dirichlet = in_dbc
-
+    
+    model = Poisson2D(mesh, fields, exact=u_exact)
     model.solve()
-    model.plot(i_field=0, n_plot=n_plot)
-    model.plot(i_field=1, n_plot=n_plot)
+    
+    u1h.plot(mesh)
+    u2h.plot(mesh)

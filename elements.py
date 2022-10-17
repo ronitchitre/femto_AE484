@@ -12,13 +12,10 @@ import femtolib as femto
 
 
 class TriangleP1(femto.FiniteElement):
-    def __init__(self, quad_order=2, quad_type='area'):
-        super().__init__()
-
-        self.n_dof = 3
-        self.quad_order = quad_order
-        self.quad_type = quad_type
-        self.init_quadrature()
+    def __init__(self, quad_order=2, quad_type='area', affine=True):
+        dim = 2
+        n_dof = 3 
+        super().__init__(dim, n_dof, quad_order, quad_type, affine)
 
     def _get_GL_pts_wts_1d(self, n_quad):
         if n_quad == 1:
@@ -125,39 +122,12 @@ class TriangleP1(femto.FiniteElement):
         else:
             raise Exception("Invalid shape function index")
 
-    def get_coords(self, xi, nodes):
-        x = np.zeros_like(xi)
-        dim = np.shape(xi)[-1]
-        for i in range(dim):
-            for j in range(self.n_dof):
-                x[i] += self.phi(j, *xi)*nodes[j, i]
-        return x
-
-    def Jacobian(self, xi, nodes):
-        x1, x2, x3 = nodes[:, 0]
-        y1, y2, y3 = nodes[:, 1]
-        J = np.zeros((2, 2))
-        J[0, 0] = x2 - x1
-        J[0, 1] = x3 - x1
-        J[1, 0] = y2 - y1
-        J[1, 1] = y3 - y1
-        return J
-
-    def get_ref_coords(self, x, nodes):
-        J = self.Jacobian(None, nodes)
-        xi = np.linalg.inv(J) @ np.array([(x[0] - nodes[0, 0]),
-                                          (x[1] - nodes[0, 1])])
-        return xi
-
 
 class QuadP1(femto.FiniteElement):
-    def __init__(self, quad_order=2, quad_type='gauss'):
-        super().__init__()
-
-        self.n_dof = 4
-        self.quad_order = quad_order
-        self.quad_type = quad_type
-        self.init_quadrature()
+    def __init__(self, quad_order=2, quad_type='gauss', affine=True):
+        dim = 2
+        n_dof = 4
+        super().__init__(dim, n_dof, quad_order, quad_type, affine)
 
     def _get_GL_pts_wts_1d(self, n_quad):
         if n_quad == 1:
@@ -252,23 +222,3 @@ class QuadP1(femto.FiniteElement):
                 raise Exception("Invalid coordinate index")
         else:
             raise Exception("Invalid shape function index")
-
-    def get_coords(self, xi, nodes):
-        x = np.zeros_like(xi)
-        dim = np.shape(xi)[-1]
-        for i in range(dim):
-            for j in range(self.n_dof):
-                x[i] += self.phi(j, *xi)*nodes[j, i]
-        return x
-
-    def Jacobian(self, xi, nodes):
-        J = np.zeros((2, 2))
-        for i in range(2):
-            for j in range(2):
-                J[i, j] = 0.0
-                for k in range(self.n_dof):
-                    J[i, j] += nodes[k, i]*self.d_phi(k, j, *xi)
-        return J
-
-    def get_ref_coords(self, x, nodes):
-        raise NotImplementedError()

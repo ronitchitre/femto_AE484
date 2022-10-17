@@ -10,21 +10,13 @@ October 2022
 import femtolib as femto
 import mesher
 import elements
+import function_spaces
 import numpy as np
 import triangle as tr
 import matplotlib.pyplot as plt
-import matplotlib.tri as tri
-from mpl_toolkits import mplot3d
+
 
 pi = np.pi
-
-
-def f(i, xs):
-    if i == 0:
-        if xs.ndim == 1:
-            return 0.0
-        else:
-            return np.zeros(len(xs))
 
 
 def add_hole(x, y, r, n_bdy, vertices, segments):
@@ -102,10 +94,19 @@ def in_neumann(i, x, y):
             return False, None
 
 
-class Poisson(femto.Model):
-    def __init__(self, fields=None, source=None, exact=None):
-        super().__init__(fields, exact)
-        self.source = source
+class HeatConduction(femto.Model):
+    def __init__(self, mesh=None, fields=None, exact=None):
+        super().__init__(mesh, fields, exact)
+        
+        self.dirichlet = in_dirichlet
+        self.neumann = in_neumann
+        
+    def source(self, i, xs):
+        if i == 0:
+            if xs.ndim == 1:
+                return 0.0
+            else:
+                return np.zeros(len(xs))
 
     def stiffness_kernel(self, i, j, x, u, v, grad_u, grad_v):
         if i == 0 and j == 0:
@@ -115,40 +116,18 @@ class Poisson(femto.Model):
         if i == 0:
             return self.source(i, x)*v
 
-    def plot(self, i_field=0):
-        if i_field == 0:
-            u = self.fields[i_field]
-            triangulation = tri.Triangulation(u.mesh.nodes[:, 0],
-                                              u.mesh.nodes[:, 1],
-                                              u.mesh.elements)
-
-            fig, ax = plt.subplots(1, 1)
-            ax.tricontour(triangulation, u.dof,
-                          levels=40, linewidths=0.5, colors='k')
-            surf = ax.tricontourf(triangulation, u.dof,
-                                  levels=40, cmap="RdBu_r")
-
-            ax.set_xlabel('x')
-            ax.set_ylabel('y')
-            fig.colorbar(surf, ax=ax)
-            plt.subplots_adjust(hspace=0.5)
-            plt.show()
-
 
 if __name__ == '__main__':
     quad_order = 2
-
-    t_dict = create_mesh(a=0.002, n_bdy=8, r=0.05, plot=True)
-    mesh = mesher.TriangleMesh(t_dict)
+    
     ref_triangle = elements.TriangleP1(quad_order=quad_order)
+    t_dict = create_mesh(a=0.002, n_bdy=8, r=0.05, plot=True)
+    mesh = mesher.TriMesh(*mesher.triangle_to_femto(t_dict), ref_triangle)
 
-    n_dof = len(mesh.nodes)
-    uh = femto.FunctionSpace(mesh, ref_triangle, n_dof, idx=0)
-
+    uh = function_spaces.P1(mesh, ref_triangle, idx=0)
     fields = [uh]
-    model = Poisson(fields, source=f, exact=None)
-    model.dirichlet = in_dirichlet
-    model.neumann = in_neumann
-
+    
+    model = HeatConduction(mesh, fields, exact=None)
     model.solve()
-    model.plot(i_field=0)
+    
+    uh.plot(mesh)
